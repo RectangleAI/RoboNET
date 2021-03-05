@@ -47,7 +47,7 @@ class DQN:
         self.recordReward += memory[-1][2]
 
         # print('Total memory: ', str(sizeOfMemory), ' , total rewards: ', str(self.recordReward))
-        return
+        return 'Total memory: ', str(sizeOfMemory), ' , total rewards: ', str(self.recordReward)
 
     def DQNmodel(self):
         model = Sequential()
@@ -121,32 +121,30 @@ class RoboObstacle:
         # print('fitting: ', len(X_state_val), ' datas')
         self.Agent.model.fit(X_state_val, tf.keras.utils.to_categorical(
             X_next_state_val, num_classes=self.Agent.outputnumbers), verbose=0)
-
-
         return True
 
-    def show_n_shapes(self, n, y_location, generate_shapes = True, xlimit = 10):
+    def show_n_shapes(self , ylimit = 10, xlimit = 10, generate_shapes = True):
         if generate_shapes == True:
-            self.dict_shapes = {}
-            self.shapes_state = []
-            # n varies from 0 to 7
-            x_poses = [i for i in range(xlimit)]
-            for m in range(n):
-                x_position = np.random.choice(x_poses, replace = False)
-                self.shapes_state.append(x_position)
-                x_location = x_position * self.dimension
-                color = tuple([np.random.choice([i for i in range(255)]) for i in range(3)])
+            for i in range(ylimit):
+                x_poses = [f for f in range(xlimit)]
+                number_of_obstacles = np.random.choice(x_poses)
+                y_location = (i * self.windowsize[0])/10
+                self.shapes_state = []
+                for m in range(number_of_obstacles):
+                    x_position = np.random.choice(x_poses, replace = False)
+                    self.shapes_state.append(x_position)
+                    x_location = x_position * self.dimension
+                    color = tuple([np.random.choice([rgb for rgb in range(255)]) for i in range(3)])
 
-                self.dict_shapes[str(m)] = (color, x_location)
+                    self.dict_shapes[str(int(x_location))+'_'+str(int(y_location))] = (color, x_location, y_location)
 
 
-                pygame.draw.rect(self.DISPLAYSURF, color, (x_location, y_location, self.dimension, self.dimension))
+                    pygame.draw.rect(self.DISPLAYSURF, color, (x_location, y_location, self.dimension, self.dimension))
 
             
         else:
             for i, j in self.dict_shapes.items():
-                pygame.draw.rect(self.DISPLAYSURF, j[0], (j[1], y_location, self.dimension, self.dimension))
-                
+                pygame.draw.rect(self.DISPLAYSURF, j[0], (j[1], j[2], self.dimension, self.dimension))
         return
 
     def display(self):
@@ -161,12 +159,13 @@ class RoboObstacle:
                 sys.exit()
         return
 
-    def displayObstacles(self, ylimit = 10, xlimit = 10):
-        for i in range(ylimit):
-            number_of_obstacles = np.random.choice([i for i in range(xlimit)])
-            location = (i * self.windowsize[0])/10
-            self.show_n_shapes(number_of_obstacles, y_location = location, generate_shapes = True, xlimit = xlimit)
-        
+    def displayObstacles(self, ylimit = 10, xlimit = 10, generate_shapes = True):
+        if generate_shapes == True:
+            # ylimit = 10,  xlimit = 10, generate_shapes = True
+            self.show_n_shapes(ylimit = ylimit, xlimit = xlimit, generate_shapes = generate_shapes)
+        else:
+            self.show_n_shapes(generate_shapes = generate_shapes)
+       
         return True
 
     def evaluate(self, state):
@@ -215,12 +214,19 @@ class RoboObstacle:
 
         x, y = tuple(current_coordinate.split('_'))
         x, y = int(x), int(y)
+        print(x, y)
 
         if y < 0:
             y = 30
 
+        if y > self.windowsize[0]:
+            y =self.windowsize[0] - 30
+
         if x < 0:
             x = 30
+
+        if x > self.windowsize[0]:
+            x =self.windowsize[0] - 30
     
 
         self.updateBinariesKey[0] = str(x) + '_'+ str(y - 30)
@@ -228,7 +234,6 @@ class RoboObstacle:
         self.updateBinariesKey[2] = str(x - 30) + '_'+ str(y)
         self.updateBinariesKey[3] = str(x + 30) + '_'+ str(y)
         self.updateBinariesKey[4] = str(x) + '_'+ str(y) # remain in position
-
 
         front_movement = (str(x) + '_'+ str(y - 30)) in self.dict_shapes.keys()
         back_movement = (str(x) + '_'+ str(y + 30)) in self.dict_shapes.keys()
@@ -285,7 +290,7 @@ class RoboObstacle:
 def TrainNetwork(iterations = 5000, model_name = 'RoboNET'):
     robo = RoboObstacle(storageSize = iterations)
     robo.DISPLAYSURF.fill(robo.WHITE)
-    robo.displayObstacles()
+    robo.displayObstacles(generate_shapes = True)
     i = 0
     state = 0
     iteration = 0
@@ -293,15 +298,20 @@ def TrainNetwork(iterations = 5000, model_name = 'RoboNET'):
     successes = 0
     key, coordinate = robo.startingCoordinate()
     while iteration < iterations:
+        # Display obstacles
+        robo.DISPLAYSURF.fill(robo.WHITE)
+        robo.displayObstacles(generate_shapes = False)
         # Make move
         obs, reward, done, info = robo.step(key)
 
         # binarize Obstacles
         binaries = np.array(robo.binarize(key)).reshape(1, -1)
         predictions = robo.Agent.model.predict(binaries)
-        print(binaries)
-        action = np.argmax(predictions)
-        key = robo.interpret(predictions)
+        
+        action = np.random.choice([i for i in range(5)])
+        # key = robo.interpret(predictions)
+        key = robo.updateBinariesKey[action]
+        
         # Track next move, if next move is static for 2000 iterations break
         robo.TrackNextMove(key)
         # action = robo.Agent.epsilon_greedy(q_value, iteration)
@@ -321,7 +331,7 @@ def TrainNetwork(iterations = 5000, model_name = 'RoboNET'):
         else:
             pass
         
-
+        print('binaries: ', binaries, ' predictions: ', predictions, ' action: ', action, ' Key: ', key, ' Data Size: ', robo.Agent.stats())
         # robo.Agent.stats()
 
         # Train Network
