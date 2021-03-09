@@ -1,4 +1,4 @@
-import time,os,sys, pygame
+import time,os,sys, pygame, cv2
 import numpy as np
 import tensorflow as tf
 from pygame.locals import *
@@ -269,6 +269,7 @@ class RoboObstacle:
         x, y = 0, 0
         m= int(self.windowsize[0]/self.dimension)
         choice = np.random.choice([i for i in range(m)])
+        print(choice)
         for i in range(choice, m):
             for j in range(int(10)):
                 key = str(int(i*30)) + '_' + str(int(j*30))
@@ -300,13 +301,18 @@ def TrainNetwork(iterations = 5000, model_name = 'RoboNET'):
     robo = RoboObstacle(storageSize = iterations)
     robo.DISPLAYSURF.fill(robo.WHITE)
     Endkey, EndCoordinate = robo.DecideCoordinate() # Ending Coordinate
+    print(EndCoordinate)
     robo.endLocation = EndCoordinate
     #show robot on image
-    RobotImage = pygame.image.load('Images/Robot.png')
+    # frame = cv2.imread('./Images/dest.jpg')
+    # cv2.imshow('image', frame)
+    # cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    RobotImage = pygame.image.load('./Images/dest.jpg')
+    RobotImage = pygame.transform.scale(RobotImage, (30, 30))
     robo.DISPLAYSURF.blit(RobotImage, EndCoordinate)
-        
-    
     robo.displayObstacles(generate_shapes = True)
+    
     i = 0
     state = 0
     iteration = 0
