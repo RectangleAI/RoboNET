@@ -108,6 +108,10 @@ class RoboObstacle:
         self.dimension = self.windowsize[0]/xlimit
         self.startLocation = (0, 0)
         self.endLocation = (0, 0)
+        self.Endkey = ''
+
+        #directory to image of destination robot
+        self.RoboDir = './Images/dest.jpg'
 
     def trainDQN(self):
         X_state_val, X_action_val, rewards, X_next_state_val, continues = (
@@ -126,6 +130,12 @@ class RoboObstacle:
         return True
 
     def show_n_shapes(self , ylimit = 10, xlimit = 10, generate_shapes = True):
+        # display Robot
+        # RobotImage = pygame.image.load(self.RoboDir)
+        # RobotImage = pygame.transform.scale(RobotImage, (30, 30))
+        # self.DISPLAYSURF.blit(RobotImage, self.endLocation)
+        
+
         if generate_shapes == True:
             for i in range(ylimit):
                 x_poses = [f for f in range(xlimit)]
@@ -178,14 +188,7 @@ class RoboObstacle:
             reward = True
         return obs, reward, done, info 
 
-    def step(self, state):
-        # state is the interpretation of the neural network next coordinate (x_y coordinate location)
-        # Clear previous displays
-        location_x, location_y = state.split('_')
-
-        # decide state of robot
-        # State varies from 0 to 9
-        # display the robot
+    def DrawRobot(self, location_x, location_y):
         pygame.draw.rect(self.DISPLAYSURF, self.BLACK, (int(location_x), int(location_y), 30, 30))
         pygame.draw.rect(self.DISPLAYSURF, self.BLUE, (int(location_x), int(location_y), 25,25))
         pygame.draw.rect(self.DISPLAYSURF, self.RED, (int(location_x), int(location_y), 20, 20))
@@ -193,6 +196,22 @@ class RoboObstacle:
         pygame.draw.rect(self.DISPLAYSURF, self.BLUE, (int(location_x), int(location_y), 10, 10))
         pygame.draw.rect(self.DISPLAYSURF, self.GREEN, (int(location_x), int(location_y), 5, 5))
         pygame.draw.rect(self.DISPLAYSURF, self.WHITE, (int(location_x), int(location_y), 3, 3))
+        return
+        
+
+    def step(self, state):
+        # state is the interpretation of the neural network next coordinate (x_y coordinate location)
+        # Clear previous displays
+        location_x, location_y = state.split('_')
+
+        # decide state of robot
+        # State varies from 0 to 9
+        # display the source robot
+        self.DrawRobot(location_x, location_y)
+
+        # display the destination robot
+        xdest, ydest = self.endLocation
+        self.DrawRobot(xdest, ydest)
         self.display()
         # time.sleep()
 
@@ -269,7 +288,6 @@ class RoboObstacle:
         x, y = 0, 0
         m= int(self.windowsize[0]/self.dimension)
         choice = np.random.choice([i for i in range(m)])
-        print(choice)
         for i in range(choice, m):
             for j in range(int(10)):
                 key = str(int(i*30)) + '_' + str(int(j*30))
@@ -293,6 +311,52 @@ class RoboObstacle:
         else:
             output = False
         return output
+    
+    def Euclidean_distance(self, source, destination):
+        x1, y1 = tuple(source.split('_'))
+        x1, y1 = int(x1), int(y1)
+        x2, y2 = tuple(destination.split('_'))
+        x2, y2 = int(x2), int(y2)
+        distance = np.sqrt(pow(y2-y1, 2)+ pow(x2 - x2, 2))
+        return distance
+
+    def sortMovement(self, dictData):
+        vals = list(dictData.values())
+        keys = list(dictData.keys())
+        vals.sort()
+        sortedKeys = []
+        for i in vals:
+            for j in keys:
+                if dictData[j] == i:
+                    sortedKeys.append(j)
+
+        return sortedKeys[0]
+
+    def DefineAction(self, key):
+        x, y = tuple(key.split('_'))
+        x, y = int(x), int(y)
+
+        front_movement = (str(x) + '_'+ str(y - 30)) in self.dict_shapes.keys()
+        back_movement = (str(x) + '_'+ str(y + 30)) in self.dict_shapes.keys()
+        left_movement = (str(x - 30) + '_'+ str(y)) in self.dict_shapes.keys()
+        right_movement = (str(x + 30) + '_'+ str(y)) in self.dict_shapes.keys()
+
+        OutputDict = {}
+        for i, BooleanStatus in enumerate([front_movement, back_movement, left_movement, right_movement]):
+            if BooleanStatus == False:
+                # calcuate Euclidean Distance
+                 distance = self.Euclidean_distance(self.updateBinariesKey[i], self.Endkey)
+                 OutputDict[i] = distance
+            else:
+                pass
+        
+        interpretPosition = {0: 'front', 1: 'back', 2: 'left', 3: 'right', 4: 'stay'}
+        
+        # Decide to go through the path with the shortest distance
+        print(OutputDict)
+        decision = self.sortMovement(OutputDict)
+        print(decision, interpretPosition[decision])
+        return decision, interpretPosition[decision]
 
 
 
@@ -301,16 +365,14 @@ def TrainNetwork(iterations = 5000, model_name = 'RoboNET'):
     robo = RoboObstacle(storageSize = iterations)
     robo.DISPLAYSURF.fill(robo.WHITE)
     Endkey, EndCoordinate = robo.DecideCoordinate() # Ending Coordinate
-    print(EndCoordinate)
     robo.endLocation = EndCoordinate
+    robo.Endkey = Endkey
     #show robot on image
     # frame = cv2.imread('./Images/dest.jpg')
     # cv2.imshow('image', frame)
     # cv2.waitKey(0)
     cv2.destroyAllWindows()
-    RobotImage = pygame.image.load('./Images/dest.jpg')
-    RobotImage = pygame.transform.scale(RobotImage, (30, 30))
-    robo.DISPLAYSURF.blit(RobotImage, EndCoordinate)
+    
     robo.displayObstacles(generate_shapes = True)
     
     i = 0
@@ -322,10 +384,17 @@ def TrainNetwork(iterations = 5000, model_name = 'RoboNET'):
     startKey, startCoordinate = robo.DecideCoordinate(excludingPoint = Endkey) # starting Coordinate
     robo.startLocation = startCoordinate
     key = startKey
+    print('=============================================================================')
+    print('Start Coordinate: ', tuple(key.split('_')), ' End Coordinate: ', EndCoordinate)
+    print('=============================================================================')
+    print('boundaries coordinates')
+    print('=============================================================================')
+    print(robo.dict_shapes)
+    print('=============================================================================')
     while iteration < iterations:
-        print('Start Coordinate: ', tuple(key.split('_')), ' End Coordinate: ', EndCoordinate)
         # Display obstacles
         robo.DISPLAYSURF.fill(robo.WHITE)
+        # Display Generated Obstacles
         robo.displayObstacles(generate_shapes = False)
         # Make move
         obs, reward, done, info = robo.step(key)
@@ -334,7 +403,8 @@ def TrainNetwork(iterations = 5000, model_name = 'RoboNET'):
         binaries = np.array(robo.binarize(key)).reshape(1, -1)
         predictions = robo.Agent.model.predict(binaries)
         
-        action = np.random.choice([i for i in range(5)])
+        # action = np.random.choice([i for i in range(5)])
+        action, interpretAction = robo.DefineAction(key)
         # key = robo.interpret(predictions)
         key = robo.updateBinariesKey[action]
         
