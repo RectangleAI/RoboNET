@@ -109,6 +109,8 @@ class RoboObstacle:
         self.startLocation = (0, 0)
         self.endLocation = (0, 0)
         self.Endkey = ''
+        self.DecisionTracker = {}
+        self.currentDecision = []
 
         #directory to image of destination robot
         self.RoboDir = './Images/dest.jpg'
@@ -330,7 +332,9 @@ class RoboObstacle:
                 if dictData[j] == i:
                     sortedKeys.append(j)
 
-        return sortedKeys[0]
+        return sortedKeys
+
+        
 
     def DefineAction(self, key):
         x, y = tuple(key.split('_'))
@@ -355,8 +359,9 @@ class RoboObstacle:
         # Decide to go through the path with the shortest distance
         print(OutputDict)
         decision = self.sortMovement(OutputDict)
-        print(decision, interpretPosition[decision])
-        return decision, interpretPosition[decision]
+        self.currentDecision = decision
+        print(decision[0], interpretPosition[decision[0]])
+        return decision[0], interpretPosition[decision[0]]
 
 
 
