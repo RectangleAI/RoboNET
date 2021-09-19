@@ -2,11 +2,11 @@ import time,os,sys, pygame, cv2
 import numpy as np
 import tensorflow as tf
 from pygame.locals import *
-from keras import Sequential, layers
-from keras.optimizers import Adam
-from keras.layers import Dense
+from tensorflow.keras import Sequential, layers
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.layers import Dense
 from collections import deque
-from keras.models import load_model
+from tensorflow.keras.models import load_model
 pygame.init()
 
 
@@ -19,7 +19,7 @@ class DQN:
         self.eps_min = 0.1
         self.eps_max = 1.0
         self.eps_decay_steps = 2000000
-        self.replay_memory_size = size
+        self.replay_memory_size = size #number of experiences stored in replay memory
         self.replay_memory = deque([], maxlen=size)
         n_steps = 4000000  # total number of training steps
         self.training_start = 10000  # start training after 10,000 game iterations
@@ -42,6 +42,7 @@ class DQN:
 
     
     def stats(self):
+        '''This method keep statistics on total rewards obtained during an episode'''
         memory = list(self.replay_memory)
         sizeOfMemory = len(memory)
         self.recordReward += memory[-1][2]
@@ -59,6 +60,8 @@ class DQN:
         return model
 
     def sample_memories(self, batch_size):
+        '''This method defines how memories/experiences are sampled from the replay memory 
+        before being passed as parameters to the DQN'''
         indices = np.random.permutation(len(self.replay_memory))[:batch_size]
         # state, action, reward, next_state, continue
         cols = [[], [], [], [], []]
@@ -70,10 +73,12 @@ class DQN:
         return (cols[0], cols[1], cols[2].reshape(-1, 1), cols[3].reshape(-1,1), cols[4].reshape(-1, 1))
 
     def epsilon_greedy(self, q_values, step):
+        '''This method defines the exploration policy for the agent based on the epsilon
+        greedy algorithm'''
         self.epsilon = max(self.eps_min, self.eps_max -
                            (self.eps_max-self.eps_min) * step/self.eps_decay_steps)
         if np.random.rand() < self.epsilon:
-            return np.random.randint(10)  # random action
+            return np.random.randint(4)  # random action
         else:
             return np.argmax(q_values)  # optimal action
 
@@ -82,7 +87,7 @@ class DQN:
 
 
 class RoboObstacle:
-    def __init__(self, fps=50, storageSize = 5000, possibilities = 4, windowsize = (300,300), xlimit = 10, ylimit = 10):
+    def __init__(self, fps=50, storageSize = 5000, possibilities = 4, windowsize = (300,300), xlimit = 10, ylimit = 10, env_learning_rate=0.3):
         # set up the window
         self.windowsize = windowsize
         self.DISPLAYSURF = pygame.display.set_mode(self.windowsize, 0, 32)
@@ -93,8 +98,11 @@ class RoboObstacle:
         self.RED = (255, 0, 0)
         self.GREEN = (0, 255, 0)
         self.BLUE = (0, 0, 255)
+        #set number of possible grids on x and y axis
+        self.xlimit = xlimit
+        self.ylimit = ylimit
 
-        self.dict_shapes = {}
+        self.dict_shapes = {} #dictionary holding position of obstacles per row in the window or environment
         self.shapes_state = []
 
         self.Agent = DQN(size = storageSize, inputnumbers = possibilities, outputnumbers = possibilities+1)
@@ -105,15 +113,23 @@ class RoboObstacle:
         self.possibilities = possibilities
         self.updateBinariesKey = {}
         self.movement = []
-        self.dimension = self.windowsize[0]/xlimit
+        self.dimension_x = int(self.windowsize[0]/xlimit) #width of each grid
+        self.dimension_y = int(self.windowsize[1]/ylimit) #height of each grid
         self.startLocation = (0, 0)
         self.endLocation = (0, 0)
         self.Endkey = ''
         self.DecisionTracker = {}
         self.currentDecision = []
 
+        #set factor for number of obstacles
+        self.env_learning_rate = env_learning_rate
+
         #directory to image of destination robot
         self.RoboDir = './Images/dest.jpg'
+        #set parameter for static robot
+        self.static = False
+        #end program
+        self.end = False
 
     def trainDQN(self):
         X_state_val, X_action_val, rewards, X_next_state_val, continues = (
@@ -131,7 +147,9 @@ class RoboObstacle:
             X_next_state_val, num_classes=self.Agent.outputnumbers), verbose=0)
         return True
 
-    def show_n_shapes(self , ylimit = 10, xlimit = 10, generate_shapes = True):
+    def show_n_shapes(self , generate_shapes = True):
+        '''This method defines the part of the environment that has obstacles. It also enables retaining the obstacle
+        positions within the environment when generate_shapes is set to False'''
         # display Robot
         # RobotImage = pygame.image.load(self.RoboDir)
         # RobotImage = pygame.transform.scale(RobotImage, (30, 30))
@@ -139,26 +157,29 @@ class RoboObstacle:
         
 
         if generate_shapes == True:
-            for i in range(ylimit):
-                x_poses = [f for f in range(xlimit)]
-                number_of_obstacles = np.random.choice(x_poses)
-                y_location = (i * self.windowsize[0])/10
+            for i in range(self.ylimit):
+                x_poses = [f for f in range(self.xlimit)] #list of all possible obstacle positions on the x-axis
+                # number_of_obstacles = np.random.choice(x_poses)
+                number_of_obstacles = int(self.xlimit * self.env_learning_rate) #number of obstacles per row
+                y_location = (i * self.windowsize[1])/self.ylimit
+                #location of obstacles
                 self.shapes_state = []
+                #iterate over each row and randomly place (and colour) m number of obstacles and store all selected grid positions in self.dict_shapes 
                 for m in range(number_of_obstacles):
                     x_position = np.random.choice(x_poses, replace = False)
                     self.shapes_state.append(x_position)
-                    x_location = x_position * self.dimension
+                    x_location = x_position * self.dimension_x
                     color = tuple([np.random.choice([rgb for rgb in range(255)]) for i in range(3)])
 
                     self.dict_shapes[str(int(x_location))+'_'+str(int(y_location))] = (color, x_location, y_location)
 
 
-                    pygame.draw.rect(self.DISPLAYSURF, color, (x_location, y_location, self.dimension, self.dimension))
+                    pygame.draw.rect(self.DISPLAYSURF, color, (x_location, y_location, self.dimension_x, self.dimension_y))
 
-            
+        #retain the environment structure when generate_shapes is set to False    
         else:
             for i, j in self.dict_shapes.items():
-                pygame.draw.rect(self.DISPLAYSURF, j[0], (j[1], j[2], self.dimension, self.dimension))
+                pygame.draw.rect(self.DISPLAYSURF, j[0], (j[1], j[2], self.dimension_x, self.dimension_y))
         return
 
     def display(self):
@@ -173,10 +194,10 @@ class RoboObstacle:
                 sys.exit()
         return
 
-    def displayObstacles(self, ylimit = 10, xlimit = 10, generate_shapes = True):
+    def displayObstacles(self, generate_shapes = True):
         if generate_shapes == True:
             # ylimit = 10,  xlimit = 10, generate_shapes = True
-            self.show_n_shapes(ylimit = ylimit, xlimit = xlimit, generate_shapes = generate_shapes)
+            self.show_n_shapes(generate_shapes = generate_shapes)
         else:
             self.show_n_shapes(generate_shapes = generate_shapes)
        
@@ -191,13 +212,13 @@ class RoboObstacle:
         return obs, reward, done, info 
 
     def DrawRobot(self, location_x, location_y):
-        pygame.draw.rect(self.DISPLAYSURF, self.BLACK, (int(location_x), int(location_y), 30, 30))
-        pygame.draw.rect(self.DISPLAYSURF, self.BLUE, (int(location_x), int(location_y), 25,25))
-        pygame.draw.rect(self.DISPLAYSURF, self.RED, (int(location_x), int(location_y), 20, 20))
-        pygame.draw.rect(self.DISPLAYSURF, self.WHITE, (int(location_x), int(location_y), 15,15))
-        pygame.draw.rect(self.DISPLAYSURF, self.BLUE, (int(location_x), int(location_y), 10, 10))
-        pygame.draw.rect(self.DISPLAYSURF, self.GREEN, (int(location_x), int(location_y), 5, 5))
-        pygame.draw.rect(self.DISPLAYSURF, self.WHITE, (int(location_x), int(location_y), 3, 3))
+        box_dimension_x, box_dimension_y = int(self.windowsize[0]/self.xlimit), int(self.windowsize[1]/self.ylimit)
+
+        self.robot = pygame.image.load('Images/robot.png')
+        self.robot = pygame.transform.scale(self.robot, (box_dimension_x, box_dimension_y))
+        
+        self.DISPLAYSURF.blit(self.robot, (int(location_x), int(location_y)))
+                
         return
         
 
@@ -213,6 +234,7 @@ class RoboObstacle:
 
         # display the destination robot
         xdest, ydest = self.endLocation
+        
         self.DrawRobot(xdest, ydest)
         self.display()
         # time.sleep()
@@ -222,6 +244,9 @@ class RoboObstacle:
 
 
     def binarize(self, current_coordinate):
+        '''This method converts movements to coordinates and updates the values of self.updateBinariesKey keys.
+        It also makes sure the agent never goes out of the window frame. It checks if the chosen movement is an obstacle 
+        by comparing with self.dict_shapes, a dictionary that stores obstacle positions'''
         # current_coordinate must follow this format, x_y. 
         # where x is the x coordinate
         # where y is the y coordinate
@@ -240,33 +265,40 @@ class RoboObstacle:
         # print(x, y)
 
         if y < 0:
-            y = 30
+            y = self.dimension_y
 
-        if y > self.windowsize[0]:
-            y =self.windowsize[0] - 30
+        if y > self.windowsize[1]:
+            y =self.windowsize[1] - self.dimension_y
 
         if x < 0:
-            x = 30
+            x = self.dimension_x
 
         if x > self.windowsize[0]:
-            x =self.windowsize[0] - 30
+            x =self.windowsize[0] - self.dimension_x
     
 
-        self.updateBinariesKey[0] = str(x) + '_'+ str(y - 30)
-        self.updateBinariesKey[1] = str(x) + '_'+ str(y + 30)
-        self.updateBinariesKey[2] = str(x - 30) + '_'+ str(y)
-        self.updateBinariesKey[3] = str(x + 30) + '_'+ str(y)
+        self.updateBinariesKey[0] = str(x) + '_'+ str(y - self.dimension_y)
+        self.updateBinariesKey[1] = str(x) + '_'+ str(y + self.dimension_y)
+        self.updateBinariesKey[2] = str(x - self.dimension_x) + '_'+ str(y)
+        self.updateBinariesKey[3] = str(x + self.dimension_x) + '_'+ str(y)
         self.updateBinariesKey[4] = str(x) + '_'+ str(y) # remain in position
 
-        front_movement = (str(x) + '_'+ str(y - 30)) in self.dict_shapes.keys()
-        back_movement = (str(x) + '_'+ str(y + 30)) in self.dict_shapes.keys()
-        left_movement = (str(x - 30) + '_'+ str(y)) in self.dict_shapes.keys()
-        right_movement = (str(x + 30) + '_'+ str(y)) in self.dict_shapes.keys()
+        front_movement = (str(x) + '_'+ str(y - self.dimension_y)) in self.dict_shapes.keys()
+        back_movement = (str(x) + '_'+ str(y + self.dimension_y)) in self.dict_shapes.keys()
+        left_movement = (str(x - self.dimension_x) + '_'+ str(y)) in self.dict_shapes.keys()
+        right_movement = (str(x + self.dimension_x) + '_'+ str(y)) in self.dict_shapes.keys()
         
+        if self.Euclidean_distance(current_coordinate, self.Endkey) == 0:
+            print('Arrived destination')
+            time.sleep(5)
+            self.end = True
+            
         if (front_movement == False) and (back_movement == False) and (left_movement== False) and (right_movement == False):
-            static = True
+            self.static = True
+            # self.end = True
+
         else:
-            static = False
+            self.static = False
 
         binary = np.array([front_movement, back_movement, left_movement, right_movement]).reshape(-1, 1)
         return binary
@@ -279,25 +311,20 @@ class RoboObstacle:
         return output
 
 
-    def DecideCoordinate(self, excludingPoint = '30_30'):
-        if excludingPoint:
-            pointx, pointy = excludingPoint.split('_')
-            # Add Excluded Point to self.dict_shapes (list of points with barriers)
-            color = (255, 0, 0)
-            self.dict_shapes[str(pointx) + '_'+ str(pointy)] = (color, int(pointx), int(pointy))
-        else:
-            pass
+    def DecideCoordinate(self, excludingPoint = None):
+        '''This method randomly selects the start and end coordinates of the agent
+        '''
         x, y = 0, 0
-        m= int(self.windowsize[0]/self.dimension)
+        m= int(self.windowsize[0]/self.dimension_x)
         choice = np.random.choice([i for i in range(m)])
         for i in range(choice, m):
-            for j in range(int(10)):
-                key = str(int(i*30)) + '_' + str(int(j*30))
-                if key in self.dict_shapes.keys():
+            for j in range(int(self.ylimit)):
+                key = str(int(i*self.dimension_x)) + '_' + str(int(j*self.dimension_y))
+                if key in self.dict_shapes.keys() or key == excludingPoint:
                     pass
                 else:
-                    x = int(i*30)
-                    y = int(j*30)
+                    x = int(i*self.dimension_x)
+                    y = int(j*self.dimension_y)
                     break
 
             break
@@ -319,7 +346,7 @@ class RoboObstacle:
         x1, y1 = int(x1), int(y1)
         x2, y2 = tuple(destination.split('_'))
         x2, y2 = int(x2), int(y2)
-        distance = np.sqrt(pow(y2-y1, 2)+ pow(x2 - x2, 2))
+        distance = np.sqrt(pow(y2-y1, 2)+ pow(x2 - x1, 2))
         return distance
 
     def sortMovement(self, dictData):
@@ -340,10 +367,10 @@ class RoboObstacle:
         x, y = tuple(key.split('_'))
         x, y = int(x), int(y)
 
-        front_movement = (str(x) + '_'+ str(y - 30)) in self.dict_shapes.keys()
-        back_movement = (str(x) + '_'+ str(y + 30)) in self.dict_shapes.keys()
-        left_movement = (str(x - 30) + '_'+ str(y)) in self.dict_shapes.keys()
-        right_movement = (str(x + 30) + '_'+ str(y)) in self.dict_shapes.keys()
+        front_movement = (str(x) + '_'+ str(y - self.dimension_y)) in self.dict_shapes.keys()
+        back_movement = (str(x) + '_'+ str(y + self.dimension_y)) in self.dict_shapes.keys()
+        left_movement = (str(x - self.dimension_x) + '_'+ str(y)) in self.dict_shapes.keys()
+        right_movement = (str(x + self.dimension_x) + '_'+ str(y)) in self.dict_shapes.keys()
 
         OutputDict = {}
         for i, BooleanStatus in enumerate([front_movement, back_movement, left_movement, right_movement]):
@@ -357,10 +384,10 @@ class RoboObstacle:
         interpretPosition = {0: 'front', 1: 'back', 2: 'left', 3: 'right', 4: 'stay'}
         
         # Decide to go through the path with the shortest distance
-        print(OutputDict)
+        # print(OutputDict)
         decision = self.sortMovement(OutputDict)
         self.currentDecision = decision
-        print(decision[0], interpretPosition[decision[0]])
+        # print(decision[0], interpretPosition[decision[0]])
         return decision[0], interpretPosition[decision[0]]
 
 
@@ -369,9 +396,8 @@ class RoboObstacle:
 def TrainNetwork(iterations = 5000, model_name = 'RoboNET'):
     robo = RoboObstacle(storageSize = iterations)
     robo.DISPLAYSURF.fill(robo.WHITE)
-    Endkey, EndCoordinate = robo.DecideCoordinate() # Ending Coordinate
-    robo.endLocation = EndCoordinate
-    robo.Endkey = Endkey
+    
+    
     #show robot on image
     # frame = cv2.imread('./Images/dest.jpg')
     # cv2.imshow('image', frame)
@@ -379,6 +405,9 @@ def TrainNetwork(iterations = 5000, model_name = 'RoboNET'):
     cv2.destroyAllWindows()
     
     robo.displayObstacles(generate_shapes = True)
+    Endkey, EndCoordinate = robo.DecideCoordinate() # Ending Coordinate
+    robo.endLocation = EndCoordinate
+    robo.Endkey = Endkey
     
     i = 0
     state = 0
@@ -390,14 +419,14 @@ def TrainNetwork(iterations = 5000, model_name = 'RoboNET'):
     robo.startLocation = startCoordinate
     key = startKey
     print('=============================================================================')
-    print('Start Coordinate: ', tuple(key.split('_')), ' End Coordinate: ', EndCoordinate)
+    print('Start Coordinate: ', startCoordinate, ' End Coordinate: ', EndCoordinate)
     print('=============================================================================')
     print('boundaries coordinates')
     print('=============================================================================')
     print(robo.dict_shapes)
     print('=============================================================================')
-    while iteration < iterations:
-        # Display obstacles
+    while (not robo.end) and (iteration < iterations):
+        # Fill window with white grids
         robo.DISPLAYSURF.fill(robo.WHITE)
         # Display Generated Obstacles
         robo.displayObstacles(generate_shapes = False)
